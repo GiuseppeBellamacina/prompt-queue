@@ -5,7 +5,7 @@ declare module 'claude-code' {
   interface PluginState {
     'prompt-queue': {
       queue: Queued[]
-      /** `/queue on`: prompts typed while Claude works are queued instead of steering it. */
+      /** `>> on`: prompts typed while Claude works are queued instead of steering it. */
       isOn: boolean
       /** The main loop's running turn, null while idle. */
       running: string | null

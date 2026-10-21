@@ -54,12 +54,6 @@ async function backToBox($: EngineInterface, text: string) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
-      name: 'queue',
-      description: 'on / off: queue the messages you send while Claude works; with a message: turn the queue on and add it',
-      argumentHint: 'on | off | <message>',
-      immediate: true,
-    })
-    await $.command.register({
       name: 'now',
       description: 'Interrupt Claude and send this message right away',
       argumentHint: '<message>',
@@ -86,31 +80,31 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // With the queue on, prompts the person types while a turn runs wait; slash commands and machine-made prompts pass untouched.
+  // `>> on`, `>> off` and `>> <message>` drive the queue; dropped here, they never reach the model's history.
+  // With the queue on, other prompts typed while a turn runs wait too. Slash commands and machine-made prompts pass.
   on('prompt.submit', async ($, e, next) => {
     const typed = e.origin.kind === 'composer' || e.origin.kind === 'bridge'
-    if (e.turnId === undefined || !typed || e.command !== undefined || e.isMeta || !(await read($, isOn))) return next(e)
+    if (!typed || e.command !== undefined || e.isMeta) return next(e)
+    const control = /^>>\s*([\s\S]*)$/.exec(e.text.trim())
+    if (control === null && (e.turnId === undefined || !(await read($, isOn)))) return next(e)
     if (e.attachments?.length) {
       // shortcut: a plugin cannot re-send images or files, so these stay with Claude Code's own handling.
       $.ui.toast('Message with attachments: left to Claude Code (prompt-queue cannot hold attachments).')
       return next(e)
     }
-    const n = await enqueue($, e.text)
-    return { drop: `Queued as #${n}: Claude gets it when the current task is finished.` }
-  })
 
-  on('command.run', { command: 'queue' }, async ($, e) => {
-    const arg = e.args.trim()
-    if (arg.toLowerCase() === 'off') {
+    const arg = control === null ? e.text : control[1]!.trim()
+    if (control !== null && arg.toLowerCase() === 'off') {
       await update($, isOn, () => false)
       const left = (await read($, queue)).length
-      $.ui.toast(left > 0 ? `Queue off. ${left} queued message(s) still go out one per finished task, or Clear them.` : 'Queue off.')
-      return {}
+      return { drop: left > 0 ? `Queue off. ${left} queued message(s) still go out one per finished task, or Clear them.` : 'Queue off.' }
     }
     await update($, isOn, () => true)
-    if (arg === '' || arg.toLowerCase() === 'on') $.ui.toast('Queue on: what you send while Claude works waits for the current task to finish.')
-    else $.ui.toast(`Queue on. Queued as #${await enqueue($, arg)}.`)
-    return {}
+    if (control !== null && (arg === '' || arg.toLowerCase() === 'on')) {
+      return { drop: 'Queue on: what you send while Claude works waits until the current task is finished.' }
+    }
+    const n = await enqueue($, arg)
+    return { drop: `Queued as #${n}: Claude gets it when the current task is finished.` }
   })
 
   on('command.run', { command: 'now' }, async ($, e) => {

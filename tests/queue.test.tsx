@@ -24,8 +24,11 @@ function engine(on: On) {
   return seen
 }
 
-const typed = (text: string, wait = false) => ({ text, turnId: 't1', wait, origin: { kind: 'composer' as const } })
+const origin = { kind: 'composer' as const }
+const typed = (text: string, wait = false) => ({ text, turnId: 't1', wait, origin })
+const idle = (text: string) => ({ text, wait: false, origin })
 const answered = (turnId: string) => ({ answer: 'done', durationMs: 1, isAborted: false, turnId, reason: 'answer' as const })
+const presentation = { isFullscreen: false, columns: 80 }
 
 test('off by default: mid-turn prompts steer as usual and no band shows', async ($, on) => {
   const seen = engine(on)
@@ -45,10 +48,10 @@ test('off by default: mid-turn prompts steer as usual and no band shows', async 
   await ui.unmount()
 })
 
-test('/queue on queues, the band reorders, the end of the turn sends the first', async ($, on) => {
+test('">> on" never reaches the model; then the band reorders and the end of the turn sends the first', async ($, on) => {
   const seen = engine(on)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'queue', args: 'on', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
+  expect((await $.prompt.submit(idle('>> on'))).drop).toMatch(/Queue on/)
   await $.turn.start({ text: 'task', turnId: 't1' })
 
   expect((await $.prompt.submit(typed('first'))).drop).toMatch(/#1/)
@@ -71,31 +74,27 @@ test('/queue on queues, the band reorders, the end of the turn sends the first',
   expect(seen.sent).toEqual(['second'])
 })
 
-test('/queue <message> turns the queue on and adds the message, even while idle', async ($, on) => {
+test('">> message" turns the queue on and adds the message, idle or mid-turn', async ($, on) => {
   const seen = engine(on)
-  const run = (args: string) =>
-    $.command.run({ command: 'queue', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
-  await run('open a PR afterwards')
+  expect((await $.prompt.submit(idle('>> open a PR afterwards'))).drop).toMatch(/#1/)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal', props: { ...BAND.props, isWorking: false } })
   expect(await ui.find({ type: 'Text', text: /open a PR afterwards/ })).toBeDefined()
   await ui.unmount()
 
   await $.turn.start({ text: 'task', turnId: 't1' })
-  expect((await $.prompt.submit(typed('typed later'))).drop).toMatch(/#2/)
+  expect((await $.prompt.submit(typed('>>and the changelog'))).drop).toMatch(/#2/)
   await $.turn.complete(answered('t1'))
   expect(seen.sent).toEqual(['open a PR afterwards'])
 })
 
-test('/queue off goes back to steering; what was queued still goes out', async ($, on) => {
+test('">> off" goes back to steering; what was queued still goes out', async ($, on) => {
   const seen = engine(on)
-  const run = (args: string) =>
-    $.command.run({ command: 'queue', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.turn.start({ text: 'task', turnId: 't1' })
-  await run('later')
-  await run('off')
+  await $.prompt.submit(typed('>> later'))
+  expect((await $.prompt.submit(typed('>> OFF'))).drop).toMatch(/Queue off. 1 queued/)
 
   expect((await $.prompt.submit(typed('steer now'))).drop).toBeUndefined()
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
@@ -108,16 +107,15 @@ test('/queue off goes back to steering; what was queued still goes out', async (
 
 test('/now interrupts while working, and the queue waits for its turn; while idle it fills the box', async ($, on) => {
   const seen = engine(on)
-  const run = (command: string, args: string) =>
-    $.command.run({ command, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
+  const now = (args: string) => $.command.run({ command: 'now', args, origin, presentation })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
-  await run('now', 'hello')
+  await now('hello')
   expect(seen.box).toEqual(['hello'])
 
   await $.turn.start({ text: 'hello', turnId: 't1' })
-  await run('queue', 'next one')
-  await run('now', 'urgent')
+  await $.prompt.submit(typed('>> next one'))
+  await now('urgent')
   expect(seen.aborted).toEqual(['t1'])
   await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't1', reason: 'aborted' })
   expect(seen.sent).toEqual(['urgent'])
@@ -130,9 +128,8 @@ test('/now interrupts while working, and the queue waits for its turn; while idl
 test('an interrupted turn holds the queue until "Send next"', async ($, on) => {
   const seen = engine(on)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'queue', args: 'on', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
   await $.turn.start({ text: 'task', turnId: 't1' })
-  await $.prompt.submit(typed('later'))
+  await $.prompt.submit(typed('>> later'))
 
   await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't1', reason: 'aborted' })
   expect(seen.sent).toEqual([])
