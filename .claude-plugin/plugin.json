@@ -1,0 +1,15 @@
+{
+  "name": "prompt-queue",
+  "displayName": "Prompt Queue",
+  "version": "0.1.0",
+  "description": "Choose what happens to a message you send while Claude is working: steer the running task, queue it until the task is finished, or interrupt and send it now. The queue sits above the prompt, where you can reorder, cancel or clear it.",
+  "author": {
+    "name": "Giuseppe Bellamacina",
+    "url": "https://github.com/GiuseppeBellamacina"
+  },
+  "homepage": "https://github.com/GiuseppeBellamacina/prompt-queue",
+  "repository": "https://github.com/GiuseppeBellamacina/prompt-queue",
+  "license": "MIT",
+  "keywords": ["queue", "prompt", "steering", "interrupt", "mod", "workflow"],
+  "types": "./types/index.d.ts"
+}
