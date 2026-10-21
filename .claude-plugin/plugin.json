@@ -1,7 +1,7 @@
 {
   "name": "prompt-queue",
   "displayName": "Prompt Queue",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Choose what happens to a message you send while Claude is working: steer the running task, queue it until the task is finished, or interrupt and send it now. The queue sits above the prompt, where you can reorder, cancel or clear it.",
   "author": {
     "name": "Giuseppe Bellamacina",

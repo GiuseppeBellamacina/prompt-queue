@@ -145,6 +145,8 @@ export const register: Register = on => {
 
     const mine = (
       <Box flexDirection="column" width={e.props.bodyColumns}>
+        {/* Sets the band apart from other plugins' bands drawn next to it. */}
+        <Text dimColor wrap="truncate-end">{`── prompt-queue ${'─'.repeat(e.props.bodyColumns)}`}</Text>
         <Box flexDirection="row" alignItems="center" gap={1}>
           <Text dimColor>Enter while working:</Text>
           {MODES.map(m => (

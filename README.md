@@ -33,6 +33,7 @@ Requires a Claude Code build with plugin function hooks (mods). Nothing else to 
 While Claude is working, a band above the prompt shows the mode that applies to **Enter**:
 
 ```text
+── prompt-queue ─────────────────────────────────────────────────────────────
 Enter while working: [Steer]  Queue  Interrupt   · 2 queued                  Clear
 1. also update the changelog when you're done                           ↑ ↓ ✕
 2. then open a PR                                                       ↑ ↓ ✕
@@ -58,6 +59,7 @@ Click a mode to switch; the choice is remembered across sessions. Whatever the m
 
 ## Limits
 
+- **When a message is picked up.** Claude Code hands a message typed during a task to plugins only between two steps of that task (after the running command or tool call ends), so that is when it joins the queue or interrupts. Your message shows in the transcript at once, with a *Prompt dropped by a hook: Queued as #n* line once it is queued. For an interruption that cannot wait for a long command, use `/now <message>` (it runs at once) or Esc.
 - **Attachments.** A plugin cannot re-send pasted images or files, so a message with attachments is left to Claude Code's own handling (steering, or waiting with Ctrl+X Enter) and a short notice says so.
 - **`@file` mentions** in a queued message reach Claude as text: the file is not attached when the message is sent later.
 - **Transcript.** Claude reads a queued message as your own words, but the transcript shows that the plugin sent it.
