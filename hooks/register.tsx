@@ -1,17 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Mode, Queued } from '../types'
+import type { Queued } from '../types'
 
 const queue = atom({ plugin: 'prompt-queue', key: 'queue' } as const, [])
-const mode = atom({ plugin: 'prompt-queue', key: 'mode' } as const, 'steer')
+const isOn = atom({ plugin: 'prompt-queue', key: 'isOn' } as const, false)
 const running = atom({ plugin: 'prompt-queue', key: 'running' } as const, null)
 const held = atom({ plugin: 'prompt-queue', key: 'held' } as const, false)
 const now = atom({ plugin: 'prompt-queue', key: 'now' } as const, null)
-
-const MODES: readonly Mode[] = ['steer', 'queue', 'interrupt']
-const LABELS: Record<Mode, string> = { steer: 'Steer', queue: 'Queue', interrupt: 'Interrupt' }
-const isMode = (v: unknown): v is Mode => MODES.includes(v as Mode)
 
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim()
 
@@ -57,12 +53,10 @@ async function backToBox($: EngineInterface, text: string) {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    const saved = await $.store.get('mode')
-    if (isMode(saved)) await update($, mode, () => saved)
     await $.command.register({
       name: 'queue',
-      description: 'Queue a message: Claude gets it only after the current task is finished',
-      argumentHint: '<message>',
+      description: 'on / off: queue the messages you send while Claude works; with a message: turn the queue on and add it',
+      argumentHint: 'on | off | <message>',
       immediate: true,
     })
     await $.command.register({
@@ -92,31 +86,30 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // Only prompts the person types while a turn runs; slash commands and machine-made prompts pass untouched.
+  // With the queue on, prompts the person types while a turn runs wait; slash commands and machine-made prompts pass untouched.
   on('prompt.submit', async ($, e, next) => {
     const typed = e.origin.kind === 'composer' || e.origin.kind === 'bridge'
-    if (e.turnId === undefined || !typed || e.command !== undefined || e.isMeta) return next(e)
-
-    const how: Mode = e.wait ? 'queue' : await read($, mode)
-    if (how === 'steer') return next(e)
+    if (e.turnId === undefined || !typed || e.command !== undefined || e.isMeta || !(await read($, isOn))) return next(e)
     if (e.attachments?.length) {
       // shortcut: a plugin cannot re-send images or files, so these stay with Claude Code's own handling.
       $.ui.toast('Message with attachments: left to Claude Code (prompt-queue cannot hold attachments).')
       return next(e)
     }
-    if (how === 'queue') {
-      const n = await enqueue($, e.text)
-      return { drop: `Queued as #${n}: Claude gets it when the current task is finished.` }
-    }
-    if (!(await interrupt($, e.turnId, e.text))) return next(e)
-    return { drop: 'Interrupted the running turn: this message is sent now.' }
+    const n = await enqueue($, e.text)
+    return { drop: `Queued as #${n}: Claude gets it when the current task is finished.` }
   })
 
   on('command.run', { command: 'queue' }, async ($, e) => {
-    const text = e.args.trim()
-    if (text === '') $.ui.toast('Usage: /queue <message>')
-    else if ((await read($, running)) === null) await backToBox($, text)
-    else $.ui.toast(`Queued as #${await enqueue($, text)}.`)
+    const arg = e.args.trim()
+    if (arg.toLowerCase() === 'off') {
+      await update($, isOn, () => false)
+      const left = (await read($, queue)).length
+      $.ui.toast(left > 0 ? `Queue off. ${left} queued message(s) still go out one per finished task, or Clear them.` : 'Queue off.')
+      return {}
+    }
+    await update($, isOn, () => true)
+    if (arg === '' || arg.toLowerCase() === 'on') $.ui.toast('Queue on: what you send while Claude works waits for the current task to finish.')
+    else $.ui.toast(`Queue on. Queued as #${await enqueue($, arg)}.`)
     return {}
   })
 
@@ -130,38 +123,24 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const list = await read($, queue)
-    if (!e.props.isWorking && list.length === 0) return next(e)
+    const active = await read($, isOn)
+    if (!active && list.length === 0) return next(e)
     // Other mods share this band: theirs is drawn below ours.
     const below = await next(e).catch(() => undefined)
-    const current = await read($, mode)
     const isHeld = await read($, held)
     const { Box, Text, Button } = $.ui.resolve(e)
-
-    const setMode = async (m: Mode) => {
-      await update($, mode, () => m)
-      await $.store.set('mode', m)
-    }
     const edit = (fn: (l: Queued[]) => Queued[]) => update($, queue, l => fn([...l]))
+
+    const status = active
+      ?`Queue on · ${list.length} queued${isHeld ? ', paused after an interruption' : ''}`
+      : `Queue off · ${list.length} left, sent one per finished task`
 
     const mine = (
       <Box flexDirection="column" width={e.props.bodyColumns}>
         {/* Sets the band apart from other plugins' bands drawn next to it. */}
         <Text dimColor wrap="truncate-end">{`── prompt-queue ${'─'.repeat(e.props.bodyColumns)}`}</Text>
         <Box flexDirection="row" alignItems="center" gap={1}>
-          <Text dimColor>Enter while working:</Text>
-          {MODES.map(m => (
-            <Button
-              key={`mode-${m}`}
-              label={LABELS[m]}
-              {...(m === current ? { variant: 'primary' as const } : { plain: true as const, dimColor: true })}
-              onPress={() => setMode(m)}
-            />
-          ))}
-          {list.length > 0 && (
-            <Text color={isHeld ? 'warning' : undefined}>
-              · {list.length} queued{isHeld ? ', paused after an interruption' : ''}
-            </Text>
-          )}
+          <Text color={isHeld ? 'warning' : undefined}>{status}</Text>
           <Box flexGrow={1} />
           {list.length > 0 && !e.props.isWorking && <Button key="send-next" plain label="Send next" onPress={() => sendNext($)} />}
           {list.length > 0 && <Button key="clear" plain label="Clear" onPress={() => edit(() => [])} />}
